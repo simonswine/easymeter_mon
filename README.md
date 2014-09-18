@@ -19,7 +19,7 @@ This project basically just puts the building blocks togehter. Thanks to:
 ### Hardware
 
 * EasyMeter Q3XX smart meter
-* IR - UART Interface (cf. misc/xx)
+* IR - UART Interface ([PNG](/misc/easymon_reader.png) / [SCHEME](/misc/easymon_reader.sch))
 
 ### Software
 
