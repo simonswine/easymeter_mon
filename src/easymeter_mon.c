@@ -25,6 +25,9 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <math.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/wait.h>
 
 #include <sml/sml_file.h>
 #include <sml/sml_transport.h>
@@ -128,6 +131,15 @@ void transport_receiver(unsigned char *buffer, size_t buffer_len) {
 	sml_file_free(file);
 }
 
+void parent_signal_handler(int signum){
+
+	if (signum == SIGCHLD){
+		exit(0);
+	}
+
+}
+
+
 int main(int argc, char **argv) {
 
 	unsigned char buffer[SML_BUFFER_LEN];
@@ -138,13 +150,40 @@ int main(int argc, char **argv) {
 	int fd = serial_port_open(device);
 
 	if (fd > 0) {
-		// listen on the serial device, this call is blocking.
-		bytes = sml_transport_read(fd, (unsigned char *) &buffer, SML_BUFFER_LEN);
-		if (bytes > 0) {
-			transport_receiver((unsigned char *)&buffer, bytes);
-			return 0;
+
+		/* Fork for querying serial port */
+		int child_id = fork();
+
+		if (child_id) {
+			/* Parent */
+
+			/* Set signal handler */
+			signal(SIGCHLD,parent_signal_handler);
+
+			/* Wait for 3 secs */
+			sleep(3);
+
+			fprintf(stderr, "Timeout: Got no values from meter\n");
+
+			/* kill child */
+			kill(child_id, SIGTERM);
+			waitpid(child_id,NULL,0);
+
+			close(fd);
+
+		} else {
+
+			/* Child */
+			// listen on the serial device, this call is blocking.
+			bytes = sml_transport_read(fd, (unsigned char *) &buffer,
+					SML_BUFFER_LEN);
+			if (bytes > 0) {
+				transport_receiver((unsigned char *) &buffer, bytes);
+				return 0;
+			}
 		}
-		close(fd);
+		return 0;
 	}
+
 }
 
