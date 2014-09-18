@@ -45,6 +45,7 @@
 /* config struct */ 
 struct easymeter_mon_config {
     char* serial_device;
+    char* zabbix_host;
 };
 struct easymeter_mon_config config;
 
@@ -125,7 +126,7 @@ void transport_receiver(unsigned char *buffer, size_t buffer_len) {
                     double value = sml_value_to_double(entry->value)
                             * pow(10, scaler);
 
-                    printf("%s power.%s %.2f\n", "powermon.home.swine.de",
+                    printf("%s power.%s %.2f\n", config.zabbix_host,
                             obis_alias->name, value);
 
                 }
@@ -152,7 +153,7 @@ void parent_signal_handler(int signum){
 
 void show_help(){
     fprintf( stderr, "easymeter_mon EasyMeter Q3XXX monitor, version %s-%s\n", VERSION, GIT_VERSION);
-    fprintf( stderr, "Usage:  easymeter_mon [-d <serial_device>]\n");
+    fprintf( stderr, "Usage:  easymeter_mon [-d <serial_device>] [-z <zabbix_host>]\n");
 }
 
 int parse_arguments(int argc, char **argv) {
@@ -160,7 +161,7 @@ int parse_arguments(int argc, char **argv) {
     int digit_optind = 0;
     int aopt = 0, bopt = 0;
     char *copt = 0, *dopt = 0;
-    while ( (c = getopt(argc, argv, "hd:")) != -1) {
+    while ( (c = getopt(argc, argv, "hz:d:")) != -1) {
         int this_option_optind = optind ? optind : 1;
         switch (c) {
         case 'h':
@@ -169,6 +170,9 @@ int parse_arguments(int argc, char **argv) {
             break;
         case 'd':
             config.serial_device = optarg;
+            break;
+        case 'z':
+            config.zabbix_host = optarg;
             break;
         default:
             show_help;
@@ -184,6 +188,7 @@ int main(int argc, char **argv) {
 
     // set defaults in config
     config.serial_device = "/dev/ttyAMA0"; 
+    config.zabbix_host = "powermon"; 
 
     // parse arguments
     parse_arguments(argc,argv);
@@ -210,7 +215,7 @@ int main(int argc, char **argv) {
 
             /* kill child */
             kill(child_id, SIGTERM);
-            
+
             /* close */
             close(fd);
 
