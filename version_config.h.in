@@ -1,0 +1,8 @@
+#ifndef VERSION_CONFIG_H
+#define VERSION_CONFIG_H
+
+// defines versions
+#define VERSION "@MAIN_VERSION@"
+#define GIT_VERSION "@GIT_VERSION@"
+
+#endif // VERSION_CONFIG_H

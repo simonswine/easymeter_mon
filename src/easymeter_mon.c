@@ -38,152 +38,205 @@
 #include "obis.h"
 #include "common.h"
 
+#include "version_config.h"
+
 #define SML_BUFFER_LEN 8096
+
+/* config struct */ 
+struct easymeter_mon_config {
+    char* serial_device;
+};
+struct easymeter_mon_config config;
+
+/* ret val */
+int ret_val = 0;
+
 
 /* connect to serial device */
 int serial_port_open(const char* device) {
-	int bits;
-	struct termios config;
-	memset(&config, 0, sizeof(config));
+    int bits;
+    struct termios config;
+    memset(&config, 0, sizeof(config));
 
-	int fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY);
-	if (fd < 0) {
-		printf("error: open(%s): %s\n", device, strerror(errno));
-		return -1;
-	}
+    int fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY);
+    if (fd < 0) {
+        return -1;
+    }
 
-	// set RTS
-	ioctl(fd, TIOCMGET, &bits);
-	bits |= TIOCM_RTS;
-	ioctl(fd, TIOCMSET, &bits);
+    // set RTS
+    ioctl(fd, TIOCMGET, &bits);
+    bits |= TIOCM_RTS;
+    ioctl(fd, TIOCMSET, &bits);
 
-	tcgetattr(fd, &config);
+    tcgetattr(fd, &config);
 
-	// set 8-N-1
-	config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR
-			| ICRNL | IXON);
-	config.c_oflag &= ~OPOST;
-	config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-	config.c_cflag &= ~(CSIZE | PARENB | PARODD | CSTOPB);
-	config.c_cflag |= CS8;
+    // set 8-N-1
+    config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR
+            | ICRNL | IXON);
+    config.c_oflag &= ~OPOST;
+    config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+    config.c_cflag &= ~(CSIZE | PARENB | PARODD | CSTOPB);
+    config.c_cflag |= CS8;
 
-	// set speed to 9600 baud
-	cfsetispeed(&config, B9600);
-	cfsetospeed(&config, B9600);
+    // set speed to 9600 baud
+    cfsetispeed(&config, B9600);
+    cfsetospeed(&config, B9600);
 
-	tcsetattr(fd, TCSANOW, &config);
-	return fd;
+    tcsetattr(fd, TCSANOW, &config);
+    return fd;
 }
 
 /* receive sml pdus */
 void transport_receiver(unsigned char *buffer, size_t buffer_len) {
-	// the buffer contains the whole message, with transport escape sequences.
-	// these escape sequences are stripped here.
+    // the buffer contains the whole message, with transport escape sequences.
+    // these escape sequences are stripped here.
 
-	sml_file *file;
-	sml_get_list_response *body;
-	sml_list *entry;
+    sml_file *file;
+    sml_get_list_response *body;
+    sml_list *entry;
 
-	file = sml_file_parse(buffer + 8, buffer_len - 16);
-	// the sml file is parsed now
+    file = sml_file_parse(buffer + 8, buffer_len - 16);
+    // the sml file is parsed now
 
-	/* obtain SML messagebody of type getResponseList */
-	int i;
-	for (i = 0; i < file->messages_len; i++) {
-		sml_message *message = file->messages[i];
+    /* obtain SML messagebody of type getResponseList */
+    int i;
+    for (i = 0; i < file->messages_len; i++) {
+        sml_message *message = file->messages[i];
 
-		if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE) {
-			body = (sml_get_list_response *) message->message_body->data;
-			entry = body->val_list;
+        if (*message->message_body->tag == SML_MESSAGE_GET_LIST_RESPONSE) {
+            body = (sml_get_list_response *) message->message_body->data;
+            entry = body->val_list;
 
-			/* Loop over values */
-			while (entry->next != NULL ) {
+            /* Loop over values */
+            while (entry->next != NULL ) {
 
-				/* get value obis */
-				obis_id_t obis_id;
-				obis_init(&obis_id, entry->obj_name->str);
-				char obis_name[OBIS_STR_LEN];
-				obis_unparse(obis_id, (char *) &obis_name, OBIS_STR_LEN);
+                /* get value obis */
+                obis_id_t obis_id;
+                obis_init(&obis_id, entry->obj_name->str);
+                char obis_name[OBIS_STR_LEN];
+                obis_unparse(obis_id, (char *) &obis_name, OBIS_STR_LEN);
 
-				/* get values name */
-				obis_alias_t * obis_alias = obis_get_alias(&obis_id);
-				if (obis_alias != NULL ) {
+                /* get values name */
+                obis_alias_t * obis_alias = obis_get_alias(&obis_id);
+                if (obis_alias != NULL ) {
 
-					/* get scale */
-					int scaler = (entry->scaler) ? *entry->scaler : 1;
-					double value = sml_value_to_double(entry->value)
-							* pow(10, scaler);
+                    /* get scale */
+                    int scaler = (entry->scaler) ? *entry->scaler : 1;
+                    double value = sml_value_to_double(entry->value)
+                            * pow(10, scaler);
 
-					printf("%s power.%s %.2f\n", "powermon.home.swine.de",
-							obis_alias->name, value);
+                    printf("%s power.%s %.2f\n", "powermon.home.swine.de",
+                            obis_alias->name, value);
 
-				}
+                }
 
-				/* next entry */
-				entry = entry->next;
+                /* next entry */
+                entry = entry->next;
 
-			}
+            }
 
-		}
-	}
+        }
+    }
 
-	// free the malloc'd memory
-	sml_file_free(file);
+    // free the malloc'd memory
+    sml_file_free(file);
 }
 
 void parent_signal_handler(int signum){
 
-	if (signum == SIGCHLD){
-		exit(0);
-	}
+    if (signum == SIGCHLD){
+        exit(ret_val);
+    }
 
 }
 
+void show_help(){
+    fprintf( stderr, "easymeter_mon EasyMeter Q3XXX monitor, version %s-%s\n", VERSION, GIT_VERSION);
+    fprintf( stderr, "Usage:  easymeter_mon [-d <serial_device>]\n");
+}
+
+int parse_arguments(int argc, char **argv) {
+    int c;
+    int digit_optind = 0;
+    int aopt = 0, bopt = 0;
+    char *copt = 0, *dopt = 0;
+    while ( (c = getopt(argc, argv, "hd:")) != -1) {
+        int this_option_optind = optind ? optind : 1;
+        switch (c) {
+        case 'h':
+            show_help();
+            exit(0);
+            break;
+        case 'd':
+            config.serial_device = optarg;
+            break;
+        default:
+            show_help;
+        }
+    }
+    return 0;
+}
 
 int main(int argc, char **argv) {
 
-	unsigned char buffer[SML_BUFFER_LEN];
-	size_t bytes;
+    unsigned char buffer[SML_BUFFER_LEN];
+    size_t bytes;
 
-	// open serial device. Adjust as needed.
-	char *device = "/dev/ttyUSB0";
-	int fd = serial_port_open(device);
+    // set defaults in config
+    config.serial_device = "/dev/ttyAMA0"; 
 
-	if (fd > 0) {
+    // parse arguments
+    parse_arguments(argc,argv);
 
-		/* Fork for querying serial port */
-		int child_id = fork();
+    // open serial device. Adjust as needed.
+    int fd = serial_port_open(config.serial_device);
 
-		if (child_id) {
-			/* Parent */
+    if (fd > 0) {
 
-			/* Set signal handler */
-			signal(SIGCHLD,parent_signal_handler);
+        /* Fork for querying serial port */
+        int child_id = fork();
 
-			/* Wait for 3 secs */
-			sleep(3);
+        if (child_id) {
+            /* Parent */
 
-			fprintf(stderr, "Timeout: Got no values from meter\n");
+            /* Set signal handler */
+            signal(SIGCHLD,parent_signal_handler);
 
-			/* kill child */
-			kill(child_id, SIGTERM);
-			waitpid(child_id,NULL,0);
+            /* Wait for 3 secs */
+            sleep(3);
 
-			close(fd);
+            fprintf(stderr, "Timeout: Got no values from meter\n");
+            ret_val = 2;
 
-		} else {
+            /* kill child */
+            kill(child_id, SIGTERM);
+            
+            /* close */
+            close(fd);
 
-			/* Child */
-			// listen on the serial device, this call is blocking.
-			bytes = sml_transport_read(fd, (unsigned char *) &buffer,
-					SML_BUFFER_LEN);
-			if (bytes > 0) {
-				transport_receiver((unsigned char *) &buffer, bytes);
-				return 0;
-			}
-		}
-		return 0;
-	}
+            waitpid(child_id,NULL,0);
 
+        } else {
+
+            /* Child */
+            // listen on the serial device, this call is blocking.
+            bytes = sml_transport_read(fd, (unsigned char *) &buffer,
+                    SML_BUFFER_LEN);
+            if (bytes > 0) {
+                transport_receiver((unsigned char *) &buffer, bytes);
+                return 0;
+            }
+        }
+        return 0;
+    } else {
+        /* Serial device open failed */
+        fprintf(
+            stderr,
+            "Can not open serial device '%s': %s\n",
+            config.serial_device,
+            strerror (errno)
+        );
+        exit(1);
+    }
 }
 
